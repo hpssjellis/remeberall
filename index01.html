@@ -1,0 +1,351 @@
+
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Important Things Reminder</title>
+</head>
+<body>
+    <h1>Important Things Reminder</h1>
+    <hr>
+
+    <h2>Add a New Important Thing</h2>
+    <!-- Label for the main input textarea -->
+    <label for="mainInput">What's the important thing?</label><br>
+    <!-- Textarea for the main content of the important thing -->
+    <textarea id="mainInput" rows="5" cols="50"></textarea><br><br>
+
+    <!-- Label for the person input field -->
+    <label for="personInput">Person connected:</label><br>
+    <!-- Input field for the person connected to the important thing -->
+    <input type="text" id="personInput" size="50"><br><br>
+
+    <!-- Label for the hint input field -->
+    <label for="hintInput">Hint:</label><br>
+    <!-- Input field for the hint related to the important thing -->
+    <input type="text" id="hintInput" size="50"><br><br>
+
+    <!-- Button to save the current input as a new important thing -->
+    <button id="saveButton">Save Important Thing</button>
+
+    <hr>
+
+    <h2>Data Management</h2>
+    <!-- Button to export all current data to a JSON file -->
+    <button id="exportButton">Export Data (JSON)</button><br><br>
+
+    <!-- Label for file input for importing data -->
+    <label for="importFile">Upload Data (JSON):</label>
+    <!-- File input element to select a JSON file -->
+    <input type="file" id="importFile" accept=".json"><br><br>
+    <!-- Button to upload data, replacing existing data -->
+    <button id="uploadEraseButton">Upload - Erase Existing</button>
+    <!-- Button to upload data, adding to existing data -->
+    <button id="uploadAddtoButton">Upload - Add to Existing</button>
+
+    <hr>
+
+    <h2>Recall Time!</h2>
+    <!-- Div to display hints that are due for recall -->
+    <div id="recallDisplay">
+        No hints due for recall right now. Keep adding important things!
+    </div>
+
+    <script>
+        // Array to store all important things loaded from or saved to local storage.
+        let importantThings = [];
+
+        // Define the recall intervals in milliseconds.
+        // The index corresponds to the 'recallCount' of an item.
+        // For example:
+        // recallCount 0 (first recall): 6 hours after entry/last recalled.
+        // recallCount 1 (second recall): 1 day after last recalled.
+        // And so on.
+        const recallIntervals = [
+            6 * 60 * 60 * 1000,     // 0: 6 hours
+            24 * 60 * 60 * 1000,    // 1: 1 day
+            48 * 60 * 60 * 1000,    // 2: 48 hours
+            7 * 24 * 60 * 60 * 1000,// 3: 1 week
+            30 * 24 * 60 * 60 * 1000, // 4: 1 month (approximate)
+            365 * 24 * 60 * 60 * 1000 // 5: 1 year (approximate)
+        ];
+
+        /**
+         * Loads the 'importantThings' array from local storage.
+         * If data exists, it parses the JSON string back into an array.
+         * Handles potential errors during parsing.
+         */
+        function loadImportantThings() {
+            try {
+                const storedData = localStorage.getItem('importantThings');
+                if (storedData) {
+                    importantThings = JSON.parse(storedData);
+                } else {
+                    importantThings = []; // Initialize as empty array if no data found
+                }
+            } catch (e) {
+                console.error("Error loading from local storage:", e);
+                importantThings = []; // Reset to empty array if data is corrupted
+                customAlert("Error loading data from local storage. Data might be corrupted.");
+            }
+        }
+
+        /**
+         * Saves the current 'importantThings' array to local storage.
+         * Converts the array into a JSON string before saving.
+         * Handles potential errors during saving.
+         */
+        function saveImportantThings() {
+            try {
+                localStorage.setItem('importantThings', JSON.stringify(importantThings));
+            } catch (e) {
+                console.error("Error saving to local storage:", e);
+                customAlert("Error saving data to local storage. Your browser might be full or in private mode.");
+            }
+        }
+
+        /**
+         * Adds a new important thing based on the current input field values.
+         * Validates input, creates a new object, adds it to the array,
+         * saves the array, clears the inputs, and then checks for recalls.
+         */
+        function addNewImportantThing() {
+            const mainInput = document.getElementById('mainInput').value.trim();
+            const personInput = document.getElementById('personInput').value.trim();
+            const hintInput = document.getElementById('hintInput').value.trim();
+
+            // Basic validation to ensure essential fields are not empty
+            if (!mainInput || !hintInput) {
+                // Use the custom alert function instead of the browser's alert
+                customAlert("Please enter both the 'Important Thing' and a 'Hint'.");
+                return;
+            }
+
+            const now = Date.now(); // Get current timestamp in milliseconds
+
+            // Create a new object for the important thing
+            const newThing = {
+                // Generate a simple unique ID using timestamp and a random string
+                id: now + Math.random().toString(36).substring(2, 9),
+                mainText: mainInput,
+                person: personInput,
+                hint: hintInput,
+                entryTime: now,          // Timestamp when the item was first entered
+                lastRecalled: now,       // Timestamp when the item was last recalled (initially same as entryTime)
+                recallCount: 0           // Number of times this item has been recalled
+            };
+
+            importantThings.push(newThing); // Add the new item to the array
+            saveImportantThings();          // Save the updated array to local storage
+
+            // Clear the input fields after saving
+            document.getElementById('mainInput').value = '';
+            document.getElementById('personInput').value = '';
+            document.getElementById('hintInput').value = '';
+
+            // Immediately check and display any hints that are due,
+            // including the newly added one if its recall time is now.
+            displayRecall();
+            customAlert("Important thing saved successfully!");
+        }
+
+        /**
+         * Checks for important things that are due for recall based on the recall pattern.
+         * Displays the first overdue hint found and updates its recall status.
+         */
+        function displayRecall() {
+            const recallDisplay = document.getElementById('recallDisplay');
+            const now = Date.now();
+            let hintFound = false;
+
+            // Sort the items to prioritize which hint to display if multiple are overdue.
+            // Items with an earlier 'next recall due' time will appear first.
+            importantThings.sort((a, b) => {
+                // Calculate the next expected recall time for item 'a'
+                const nextRecallA = a.lastRecalled + (recallIntervals[a.recallCount] || recallIntervals[recallIntervals.length - 1]);
+                // Calculate the next expected recall time for item 'b'
+                const nextRecallB = b.lastRecalled + (recallIntervals[b.recallCount] || recallIntervals[recallIntervals.length - 1]);
+                return nextRecallA - nextRecallB; // Sort in ascending order of next recall time
+            });
+
+            // Iterate through the sorted important things to find one due for recall
+            for (let i = 0; i < importantThings.length; i++) {
+                let item = importantThings[i];
+
+                // Determine the current interval based on recallCount.
+                // If recallCount exceeds the defined intervals, use the last interval (1 year).
+                const currentInterval = recallIntervals[item.recallCount] || recallIntervals[recallIntervals.length - 1];
+
+                // Calculate when the next recall for this item is due
+                const nextRecallDue = item.lastRecalled + currentInterval;
+
+                // Check if the current time is past or equal to the next recall due time
+                if (now >= nextRecallDue) {
+                    hintFound = true; // Mark that a hint has been found
+
+                    // Update the item's last recalled time to now and increment recall count
+                    item.lastRecalled = now;
+                    item.recallCount++;
+                    saveImportantThings(); // Save the updated state to local storage
+
+                    // Format dates for display
+                    const entryDate = new Date(item.entryTime).toLocaleString();
+                    const lastRecalledDate = new Date(item.lastRecalled).toLocaleString();
+
+                    // Display the recalled hint's details
+                    recallDisplay.innerHTML = `
+                        <b>Important Thing:</b> ${item.mainText}<br>
+                        <b>Person Connected:</b> ${item.person || 'N/A'}<br>
+                        <b>Hint:</b> ${item.hint}<br>
+                        <b>Entry Time:</b> ${entryDate}<br>
+                        <b>Last Recalled:</b> ${lastRecalledDate}<br>
+                        <b>Recall Count:</b> ${item.recallCount}<br>
+                        <br>
+                        Great job recalling this!
+                    `;
+                    break; // Stop after displaying the first overdue hint
+                }
+            }
+
+            // If no hints were found to be due for recall
+            if (!hintFound) {
+                recallDisplay.innerHTML = `
+                    No hints due for recall right now. Keep adding important things!
+                `;
+            }
+        }
+
+        /**
+         * Exports the current importantThings data as a JSON file.
+         * Creates a Blob from the JSON string and triggers a download.
+         */
+        function exportDataAsJson() {
+            if (importantThings.length === 0) {
+                customAlert("No data to export!");
+                return;
+            }
+            const dataStr = JSON.stringify(importantThings, null, 2); // Pretty print JSON
+            const blob = new Blob([dataStr], { type: 'application/json' });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = 'important_things_data.json'; // Default filename
+            document.body.appendChild(a); // Append to body to make it clickable
+            a.click(); // Programmatically click the link to trigger download
+            document.body.removeChild(a); // Remove the link after download
+            URL.revokeObjectURL(url); // Clean up the URL object
+            customAlert("Data exported successfully!");
+        }
+
+        /**
+         * Imports data from a selected JSON file.
+         * Reads the file content and then calls processImportedData with the chosen mode.
+         * @param {string} mode - 'erase' to replace existing data, 'add-to' to merge.
+         */
+        function importDataFromJson(mode) {
+            const fileInput = document.getElementById('importFile');
+            const file = fileInput.files[0];
+
+            if (!file) {
+                customAlert("Please select a JSON file to upload.");
+                return;
+            }
+
+            const reader = new FileReader();
+            reader.onload = function(event) {
+                try {
+                    const uploadedData = JSON.parse(event.target.result);
+
+                    // Basic validation to ensure it's an array of objects
+                    if (!Array.isArray(uploadedData) || !uploadedData.every(item => typeof item === 'object' && item !== null)) {
+                        customAlert("Invalid JSON format. Please upload a file containing an array of objects.");
+                        return;
+                    }
+
+                    processImportedData(uploadedData, mode);
+                    customAlert(`Data uploaded successfully (${mode} mode)!`);
+                    // Clear the file input after successful upload
+                    fileInput.value = '';
+                } catch (e) {
+                    console.error("Error parsing JSON file:", e);
+                    customAlert("Error reading or parsing the JSON file. Please ensure it's a valid JSON format.");
+                }
+            };
+            reader.readAsText(file); // Read the file as text
+        }
+
+        /**
+         * Processes the uploaded data based on the chosen mode.
+         * @param {Array<Object>} uploadedData - The array of objects parsed from the JSON file.
+         * @param {string} mode - 'erase' or 'add-to'.
+         */
+        function processImportedData(uploadedData, mode) {
+            if (mode === 'erase') {
+                importantThings = uploadedData; // Replace all existing data
+            } else if (mode === 'add-to') {
+                // Create a map of existing IDs for efficient lookup
+                const existingIds = new Set(importantThings.map(item => item.id));
+
+                uploadedData.forEach(newItem => {
+                    // Check if the new item has an ID and if it already exists
+                    if (newItem.id && existingIds.has(newItem.id)) {
+                        // Find the existing item and update it (or skip if you prefer to keep original)
+                        // For simplicity, we'll update the existing item if ID matches
+                        const existingItemIndex = importantThings.findIndex(item => item.id === newItem.id);
+                        if (existingItemIndex > -1) {
+                            importantThings[existingItemIndex] = newItem; // Overwrite existing item
+                        }
+                    } else {
+                        // Add new item if it doesn't have an ID or ID doesn't exist
+                        importantThings.push(newItem);
+                    }
+                });
+            }
+            saveImportantThings(); // Save the updated array to local storage
+            displayRecall();       // Refresh the recall display
+        }
+
+        /**
+         * Custom alert function to replace the browser's default alert.
+         * This creates a simple div element that acts as a message box.
+         * @param {string} message - The message to display in the alert.
+         */
+        function customAlert(message) {
+            // Remove any existing custom alert to prevent multiple pop-ups
+            const existingAlert = document.getElementById('customAlert');
+            if (existingAlert) {
+                existingAlert.remove();
+            }
+
+            // Create the alert div element
+            const alertDiv = document.createElement('div');
+            alertDiv.id = 'customAlert';
+            // Apply basic inline styles for visibility and positioning
+            alertDiv.style.border = '1px solid black';
+            alertDiv.style.padding = '10px';
+            alertDiv.style.backgroundColor = 'lightyellow';
+            alertDiv.style.position = 'fixed'; // Position relative to the viewport
+            alertDiv.style.top = '50%';
+            alertDiv.style.left = '50%';
+            alertDiv.style.transform = 'translate(-50%, -50%)'; // Center the div
+            alertDiv.style.zIndex = '1000'; // Ensure it's on top of other content
+            // Set the content of the alert, including an OK button to close it
+            alertDiv.innerHTML = `<b>Alert:</b> ${message}<br><br><button onclick="document.getElementById('customAlert').remove()">OK</button>`;
+            document.body.appendChild(alertDiv); // Add the alert to the body
+        }
+
+
+        // Add event listeners for the new buttons
+        document.getElementById('saveButton').addEventListener('click', addNewImportantThing);
+        document.getElementById('exportButton').addEventListener('click', exportDataAsJson);
+        document.getElementById('uploadEraseButton').addEventListener('click', () => importDataFromJson('erase'));
+        document.getElementById('uploadAddtoButton').addEventListener('click', () => importDataFromJson('add-to'));
+
+        // When the entire page has loaded, load existing data and check for hints to display
+        window.onload = function() {
+            loadImportantThings();
+            displayRecall();
+        };
+    </script>
+</body>
+</html>
+
