@@ -1,0 +1,240 @@
+
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Important Things Reminder</title>
+</head>
+<body>
+    <h1>Important Things Reminder</h1>
+    <hr>
+
+    <h2>Add a New Important Thing</h2>
+    <!-- Label for the main input textarea -->
+    <label for="mainInput">What's the important thing?</label><br>
+    <!-- Textarea for the main content of the important thing -->
+    <textarea id="mainInput" rows="5" cols="50"></textarea><br><br>
+
+    <!-- Label for the person input field -->
+    <label for="personInput">Person connected:</label><br>
+    <!-- Input field for the person connected to the important thing -->
+    <input type="text" id="personInput" size="50"><br><br>
+
+    <!-- Label for the hint input field -->
+    <label for="hintInput">Hint:</label><br>
+    <!-- Input field for the hint related to the important thing -->
+    <input type="text" id="hintInput" size="50"><br><br>
+
+    <!-- Button to save the current input as a new important thing -->
+    <button id="saveButton">Save Important Thing</button>
+
+    <hr>
+
+    <h2>Recall Time!</h2>
+    <!-- Div to display hints that are due for recall -->
+    <div id="recallDisplay">
+        No hints due for recall right now. Keep adding important things!
+    </div>
+
+    <script>
+        // Array to store all important things loaded from or saved to local storage.
+        let importantThings = [];
+
+        // Define the recall intervals in milliseconds.
+        // The index corresponds to the 'recallCount' of an item.
+        // For example:
+        // recallCount 0 (first recall): 6 hours after entry/last recalled.
+        // recallCount 1 (second recall): 1 day after last recalled.
+        // And so on.
+        const recallIntervals = [
+            6 * 60 * 60 * 1000,     // 0: 6 hours
+            24 * 60 * 60 * 1000,    // 1: 1 day
+            48 * 60 * 60 * 1000,    // 2: 48 hours
+            7 * 24 * 60 * 60 * 1000,// 3: 1 week
+            30 * 24 * 60 * 60 * 1000, // 4: 1 month (approximate)
+            365 * 24 * 60 * 60 * 1000 // 5: 1 year (approximate)
+        ];
+
+        /**
+         * Loads the 'importantThings' array from local storage.
+         * If data exists, it parses the JSON string back into an array.
+         * Handles potential errors during parsing.
+         */
+        function loadImportantThings() {
+            try {
+                const storedData = localStorage.getItem('importantThings');
+                if (storedData) {
+                    importantThings = JSON.parse(storedData);
+                } else {
+                    importantThings = []; // Initialize as empty array if no data found
+                }
+            } catch (e) {
+                console.error("Error loading from local storage:", e);
+                importantThings = []; // Reset to empty array if data is corrupted
+            }
+        }
+
+        /**
+         * Saves the current 'importantThings' array to local storage.
+         * Converts the array into a JSON string before saving.
+         * Handles potential errors during saving.
+         */
+        function saveImportantThings() {
+            try {
+                localStorage.setItem('importantThings', JSON.stringify(importantThings));
+            } catch (e) {
+                console.error("Error saving to local storage:", e);
+            }
+        }
+
+        /**
+         * Adds a new important thing based on the current input field values.
+         * Validates input, creates a new object, adds it to the array,
+         * saves the array, clears the inputs, and then checks for recalls.
+         */
+        function addNewImportantThing() {
+            const mainInput = document.getElementById('mainInput').value.trim();
+            const personInput = document.getElementById('personInput').value.trim();
+            const hintInput = document.getElementById('hintInput').value.trim();
+
+            // Basic validation to ensure essential fields are not empty
+            if (!mainInput || !hintInput) {
+                // Use the custom alert function instead of the browser's alert
+                customAlert("Please enter both the 'Important Thing' and a 'Hint'.");
+                return;
+            }
+
+            const now = Date.now(); // Get current timestamp in milliseconds
+
+            // Create a new object for the important thing
+            const newThing = {
+                // Generate a simple unique ID using timestamp and a random string
+                id: now + Math.random().toString(36).substring(2, 9),
+                mainText: mainInput,
+                person: personInput,
+                hint: hintInput,
+                entryTime: now,          // Timestamp when the item was first entered
+                lastRecalled: now,       // Timestamp when the item was last recalled (initially same as entryTime)
+                recallCount: 0           // Number of times this item has been recalled
+            };
+
+            importantThings.push(newThing); // Add the new item to the array
+            saveImportantThings();          // Save the updated array to local storage
+
+            // Clear the input fields after saving
+            document.getElementById('mainInput').value = '';
+            document.getElementById('personInput').value = '';
+            document.getElementById('hintInput').value = '';
+
+            // Immediately check and display any hints that are due,
+            // including the newly added one if its recall time is now.
+            displayRecall();
+        }
+
+        /**
+         * Checks for important things that are due for recall based on the recall pattern.
+         * Displays the first overdue hint found and updates its recall status.
+         */
+        function displayRecall() {
+            const recallDisplay = document.getElementById('recallDisplay');
+            const now = Date.now();
+            let hintFound = false;
+
+            // Sort the items to prioritize which hint to display if multiple are overdue.
+            // Items with an earlier 'next recall due' time will appear first.
+            importantThings.sort((a, b) => {
+                // Calculate the next expected recall time for item 'a'
+                const nextRecallA = a.lastRecalled + (recallIntervals[a.recallCount] || recallIntervals[recallIntervals.length - 1]);
+                // Calculate the next expected recall time for item 'b'
+                const nextRecallB = b.lastRecalled + (recallIntervals[b.recallCount] || recallIntervals[recallIntervals.length - 1]);
+                return nextRecallA - nextRecallB; // Sort in ascending order of next recall time
+            });
+
+            // Iterate through the sorted important things to find one due for recall
+            for (let i = 0; i < importantThings.length; i++) {
+                let item = importantThings[i];
+
+                // Determine the current interval based on recallCount.
+                // If recallCount exceeds the defined intervals, use the last interval (1 year).
+                const currentInterval = recallIntervals[item.recallCount] || recallIntervals[recallIntervals.length - 1];
+
+                // Calculate when the next recall for this item is due
+                const nextRecallDue = item.lastRecalled + currentInterval;
+
+                // Check if the current time is past or equal to the next recall due time
+                if (now >= nextRecallDue) {
+                    hintFound = true; // Mark that a hint has been found
+
+                    // Update the item's last recalled time to now and increment recall count
+                    item.lastRecalled = now;
+                    item.recallCount++;
+                    saveImportantThings(); // Save the updated state to local storage
+
+                    // Format dates for display
+                    const entryDate = new Date(item.entryTime).toLocaleString();
+                    const lastRecalledDate = new Date(item.lastRecalled).toLocaleString();
+
+                    // Display the recalled hint's details
+                    recallDisplay.innerHTML = `
+                        <b>Important Thing:</b> ${item.mainText}<br>
+                        <b>Person Connected:</b> ${item.person || 'N/A'}<br>
+                        <b>Hint:</b> ${item.hint}<br>
+                        <b>Entry Time:</b> ${entryDate}<br>
+                        <b>Last Recalled:</b> ${lastRecalledDate}<br>
+                        <b>Recall Count:</b> ${item.recallCount}<br>
+                        <br>
+                        Great job recalling this!
+                    `;
+                    break; // Stop after displaying the first overdue hint
+                }
+            }
+
+            // If no hints were found to be due for recall
+            if (!hintFound) {
+                recallDisplay.innerHTML = `
+                    No hints due for recall right now. Keep adding important things!
+                `;
+            }
+        }
+
+        /**
+         * Custom alert function to replace the browser's default alert.
+         * This creates a simple div element that acts as a message box.
+         * @param {string} message - The message to display in the alert.
+         */
+        function customAlert(message) {
+            // Remove any existing custom alert to prevent multiple pop-ups
+            const existingAlert = document.getElementById('customAlert');
+            if (existingAlert) {
+                existingAlert.remove();
+            }
+
+            // Create the alert div element
+            const alertDiv = document.createElement('div');
+            alertDiv.id = 'customAlert';
+            // Apply basic inline styles for visibility and positioning
+            alertDiv.style.border = '1px solid black';
+            alertDiv.style.padding = '10px';
+            alertDiv.style.backgroundColor = 'lightyellow';
+            alertDiv.style.position = 'fixed'; // Position relative to the viewport
+            alertDiv.style.top = '50%';
+            alertDiv.style.left = '50%';
+            alertDiv.style.transform = 'translate(-50%, -50%)'; // Center the div
+            alertDiv.style.zIndex = '1000'; // Ensure it's on top of other content
+            // Set the content of the alert, including an OK button to close it
+            alertDiv.innerHTML = `<b>Alert:</b> ${message}<br><br><button onclick="document.getElementById('customAlert').remove()">OK</button>`;
+            document.body.appendChild(alertDiv); // Add the alert to the body
+        }
+
+
+        // Add event listener to the save button to call addNewImportantThing when clicked
+        document.getElementById('saveButton').addEventListener('click', addNewImportantThing);
+
+        // When the entire page has loaded, load existing data and check for hints to display
+        window.onload = function() {
+            loadImportantThings();
+            displayRecall();
+        };
+    </script>
+</body>
+</html>
+
